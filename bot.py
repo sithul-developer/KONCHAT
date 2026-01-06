@@ -35,28 +35,38 @@ if not BOT_TOKEN:
     exit(1)
 
 # ---------------- DATE FORMAT UTILS ----------------
-DB_DATE_FORMAT = "%d/%m/%y"      # Database storage format
-DISPLAY_DATE_FORMAT = "%d/%m/%y"  # Display format for users
+# Use yyyy/mm/dd format for all dates
+DATE_FORMAT = "%Y/%m/%d"  # Unified date format for all purposes
 
-def format_date_for_db(date_obj: date) -> str:
-    """Format date for database (dd/mm/yy)."""
-    return date_obj.strftime(DB_DATE_FORMAT)
-
-def format_date_for_display(date_obj: date) -> str:
-    """Format date for display (dd/mm/yy format)."""
-    return date_obj.strftime(DISPLAY_DATE_FORMAT)
+def format_date(date_obj: date) -> str:
+    """Format date to yyyy/mm/dd format."""
+    return date_obj.strftime(DATE_FORMAT)
 
 def parse_date_string(date_str: str) -> date:
-    """Parse date string from various formats to date object."""
+    """Parse date string from various formats to date object (yyyy/mm/dd output)."""
+    if not date_str or date_str.strip() == "":
+        raise ValueError("Empty date string")
+    
+    # Check if it's a format string like %Y/%m/%d
+    if date_str.startswith('%'):
+        # Try to extract date from actual data or return a default
+        logger.warning(f"Received format string instead of date: {date_str}")
+        # Return today's date as fallback
+        return date.today()
+    
     date_formats = [
-        DB_DATE_FORMAT,           # dd/mm/yy
-        "%d/%m/%Y",               # dd/mm/yyyy
-        "%Y-%m-%d",               # YYYY-MM-DD (ISO format)
-        "%d-%b-%Y",               # 27-Dec-2025
-        "%d-%m-%Y",               # 27-12-2025
-        "%d.%m.%Y",               # 27.12.2025
+        "%Y/%m/%d",  # yyyy/mm/dd (primary)
+        "%d/%m/%Y",  # dd/mm/yyyy
+        "%d/%m/%y",  # dd/mm/yy
+        "%Y-%m-%d",  # yyyy-mm-dd
+        "%d-%b-%Y",  # dd-Mon-yyyy
+        "%d-%m-%Y",  # dd-mm-yyyy
+        "%d.%m.%Y",  # dd.mm.yyyy
+        "%m/%d/%Y",  # mm/dd/yyyy (US format)
+        "%Y.%m.%d",  # yyyy.mm.dd
     ]
     
+    # Try standard formats first
     for fmt in date_formats:
         try:
             return datetime.strptime(date_str, fmt).date()
@@ -69,11 +79,11 @@ def parse_date_string(date_str: str) -> date:
         if ' ' in date_str:
             date_str = date_str.split(' ')[0]
         
-        # Replace dots and other separators with hyphens
-        date_str = date_str.replace('.', '-').replace('/', '-')
+        # Replace common separators with slashes
+        date_str = date_str.replace('.', '/').replace('-', '/')
         
         # Try with cleaned string
-        for fmt in ["%d-%m-%Y", "%d-%b-%Y"]:
+        for fmt in ["%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y"]:
             try:
                 return datetime.strptime(date_str, fmt).date()
             except ValueError:
@@ -81,66 +91,65 @@ def parse_date_string(date_str: str) -> date:
     except Exception as e:
         logger.warning(f"Date parsing error for '{date_str}': {e}")
     
-    # Last resort: try to parse day-month-year from common patterns
+    # Last resort: extract numbers
     try:
-        # Extract numbers from string
         import re
         numbers = re.findall(r'\d+', date_str)
         if len(numbers) >= 3:
-            day, month, year = map(int, numbers[:3])
-            if year < 100:  # 2-digit year
-                year += 2000
-            elif year < 1000:  # 3-digit year (unlikely)
-                year += 1900
-            return date(year, month, day)
+            # Try different orderings
+            for order in [(0, 1, 2), (2, 1, 0), (2, 0, 1)]:  # yyyy,mm,dd | dd,mm,yyyy | yyyy,dd,mm
+                try:
+                    y, m, d = int(numbers[order[0]]), int(numbers[order[1]]), int(numbers[order[2]])
+                    
+                    # Normalize year
+                    if y < 100:  # 2-digit year
+                        y += 2000
+                    elif y < 1000:  # 3-digit year
+                        y += 1900
+                    
+                    # Validate month and day
+                    if 1 <= m <= 12 and 1 <= d <= 31:
+                        return date(y, m, d)
+                except ValueError:
+                    continue
     except:
         pass
     
-    raise ValueError(f"Invalid date format: {date_str}")
+    raise ValueError(f"Invalid date format: {date_str}. Please use yyyy/mm/dd format.")
 
-def normalize_date_to_db(date_input) -> str:
-    """Normalize date to database format (dd/mm/yy)."""
+def normalize_date(date_input) -> str:
+    """Normalize date to yyyy/mm/dd format."""
     if isinstance(date_input, date):
-        return format_date_for_db(date_input)
+        return format_date(date_input)
     elif isinstance(date_input, str):
         date_obj = parse_date_string(date_input)
-        return format_date_for_db(date_obj)
+        return format_date(date_obj)
     else:
         raise ValueError(f"Invalid date input type: {type(date_input)}")
 
-def normalize_date_to_display(date_input) -> str:
-    """Normalize date to display format (dd/mm/yy)."""
-    if isinstance(date_input, date):
-        return format_date_for_display(date_input)
-    elif isinstance(date_input, str):
-        date_obj = parse_date_string(date_input)
-        return format_date_for_display(date_obj)
-    else:
-        raise ValueError(f"Invalid date input type: {type(date_input)}")
+def get_today() -> str:
+    """Get today's date in yyyy/mm/dd format."""
+    return format_date(date.today())
 
-def get_today_display() -> str:
-    """Get today's date in display format (dd/mm/yy)."""
-    return format_date_for_display(date.today())
-
-def get_yesterday_display() -> str:
-    """Get yesterday's date in display format (dd/mm/yy)."""
+def get_yesterday() -> str:
+    """Get yesterday's date in yyyy/mm/dd format."""
     yesterday = date.today() - timedelta(days=1)
-    return format_date_for_display(yesterday)
+    return format_date(yesterday)
 
 def get_last_7_days() -> tuple[str, str]:
-    """Get last 7 days date range in display format."""
+    """Get last 7 days date range in yyyy/mm/dd format."""
     end_date = date.today()
     start_date = end_date - timedelta(days=6)
-    return format_date_for_display(start_date), format_date_for_display(end_date)
+    return format_date(start_date), format_date(end_date)
 
 def get_last_30_days() -> tuple[str, str]:
-    """Get last 30 days date range in display format."""
+    """Get last 30 days date range in yyyy/mm/dd format."""
     end_date = date.today()
     start_date = end_date - timedelta(days=29)
-    return format_date_for_display(start_date), format_date_for_display(end_date)
+    return format_date(start_date), format_date(end_date)
 
 def get_month_range(year: int, month: int) -> tuple[str, str]:
-    """Get date range for specific month and year."""
+    """Get date range for specific month and year in yyyy/mm/dd format."""
     # First day of month
     first_day = date(year, month, 1)
     # Last day of month
@@ -148,10 +157,10 @@ def get_month_range(year: int, month: int) -> tuple[str, str]:
         last_day = date(year + 1, 1, 1) - timedelta(days=1)
     else:
         last_day = date(year, month + 1, 1) - timedelta(days=1)
-    return format_date_for_display(first_day), format_date_for_display(last_day)
+    return format_date(first_day), format_date(last_day)
 
 def get_current_month_range() -> tuple[str, str]:
-    """Get current month date range in display format."""
+    """Get current month date range in yyyy/mm/dd format."""
     today = date.today()
     return get_month_range(today.year, today.month)
 
@@ -163,6 +172,22 @@ def get_current_month_name() -> str:
 def get_month_name(month: int) -> str:
     """Get month name by number (1-12)."""
     return calendar.month_name[month]
+
+def format_date_display(date_str: str) -> str:
+    """Format date for display (yyyy/mm/dd to more readable format)."""
+    try:
+        date_obj = parse_date_string(date_str)
+        return date_obj.strftime("%Y/%m/%d")  # Keep consistent format
+    except:
+        return date_str
+
+def safe_date_sort(date_str: str) -> date:
+    """Safely parse date string for sorting, with fallback."""
+    try:
+        return parse_date_string(date_str)
+    except:
+        # Return a very old date for invalid dates so they appear first
+        return date(1900, 1, 1)
 
 # ---------------- STATE MANAGEMENT ----------------
 user_selections = defaultdict(dict)
@@ -274,8 +299,8 @@ def create_calendar_keyboard(station: str, year: int, month: int) -> InlineKeybo
     next_month = month + 1 if month < 12 else 1
     next_year = year if month < 12 else year + 1
     
-    # Use safe station name (shorten if needed for callback data)
-    safe_station = station[:15]  # Reduced to ensure callback data stays under 64 bytes
+    # Use safe station name
+    safe_station = station[:15]
     
     keyboard.append([
         InlineKeyboardButton("◀️", callback_data=f"calendar:{safe_station}:{prev_year}:{prev_month}"),
@@ -296,7 +321,7 @@ def create_calendar_keyboard(station: str, year: int, month: int) -> InlineKeybo
                 row.append(InlineKeyboardButton(" ", callback_data="ignore"))
             else:
                 current_date = date(year, month, day)
-                date_display = format_date_for_display(current_date)  # dd/mm/yy format
+                date_display = format_date(current_date)  # yyyy/mm/dd format
                 
                 # Highlight today
                 if current_date == today:
@@ -308,16 +333,13 @@ def create_calendar_keyboard(station: str, year: int, month: int) -> InlineKeybo
                     # Future dates
                     button_text = f"{day}"
                 
-                # Create safe callback data
-                # Format: caldate:station:dd/mm/yy
+                # Create callback data
                 callback_data = f"caldate:{safe_station}:{date_display}"
                 
                 # Ensure callback data doesn't exceed 64 bytes
                 if len(callback_data.encode('utf-8')) > 64:
-                    # Use shorter format if needed
                     callback_data = f"cd:{safe_station[:10]}:{date_display}"
                     if len(callback_data.encode('utf-8')) > 64:
-                        # Even shorter - just station and date
                         callback_data = f"c:{safe_station[:5]}:{date_display}"
                 
                 row.append(InlineKeyboardButton(
@@ -352,11 +374,11 @@ def create_simple_date_keyboard(station: str, selected_date: date = None) -> Inl
     
     safe_station = station[:20]
     
-    # Format dates
-    today_fmt = format_date_for_display(date.today())
-    yesterday_fmt = format_date_for_display(date.today() - timedelta(days=1))
-    tomorrow_fmt = format_date_for_display(date.today() + timedelta(days=1))
-    selected_fmt = format_date_for_display(selected_date)
+    # Format dates in yyyy/mm/dd
+    today_fmt = format_date(date.today())
+    yesterday_fmt = format_date(date.today() - timedelta(days=1))
+    tomorrow_fmt = format_date(date.today() + timedelta(days=1))
+    selected_fmt = format_date(selected_date)
     
     keyboard = [
         [
@@ -397,7 +419,7 @@ def create_date_confirmation_keyboard(station: str, selected_date: date) -> Inli
     Create confirmation keyboard for selected date.
     """
     safe_station = station[:20]
-    date_fmt = format_date_for_display(selected_date)
+    date_fmt = format_date(selected_date)
     
     keyboard = [
         [
@@ -474,8 +496,8 @@ def create_station_keyboard() -> InlineKeyboardMarkup:
 
 def create_date_keyboard(station: str) -> InlineKeyboardMarkup:
     """Create date selection keyboard with common date options including Monthly."""
-    today_display = get_today_display()
-    yesterday_display = get_yesterday_display()
+    today_display = get_today()
+    yesterday_display = get_yesterday()
     
     # Create safe callback data
     safe_station = station[:20]
@@ -512,15 +534,15 @@ user_selections["station_mapping"] = {}
 
 # ---------------- REPORT FORMATTING ----------------
 def generate_summary_by_period(start_date: str, end_date: str, station: str = None):
-    """Generate summary for specific period and station. Dates in dd/mm/yy format."""
+    """Generate summary for specific period and station. Dates in yyyy/mm/dd format."""
     try:
         # Parse dates
         start_date_obj = parse_date_string(start_date)
         end_date_obj = parse_date_string(end_date)
         
-        # Convert to database format
-        start_date_db = format_date_for_db(start_date_obj)
-        end_date_db = format_date_for_db(end_date_obj)
+        # Use yyyy/mm/dd format for database query
+        start_date_db = format_date(start_date_obj)
+        end_date_db = format_date(end_date_obj)
         
         logger.debug(f"Getting summary for period: {start_date_db} to {end_date_db}")
         
@@ -557,6 +579,7 @@ def generate_summary_by_period(start_date: str, end_date: str, station: str = No
                 if station_name not in station_data:
                     station_data[station_name] = {}
                 
+                # Ensure date is in yyyy/mm/dd format
                 if report_date not in station_data[station_name]:
                     station_data[station_name][report_date] = {}
                 
@@ -599,8 +622,8 @@ def generate_monthly_summary(year: int, month: int, station: str = None):
         else:
             end_date_obj = date(year, month + 1, 1) - timedelta(days=1)
         
-        start_date = format_date_for_display(start_date_obj)
-        end_date = format_date_for_display(end_date_obj)
+        start_date = format_date(start_date_obj)
+        end_date = format_date(end_date_obj)
         
         # Use existing function that works
         return generate_summary_by_period(start_date, end_date, station)
@@ -656,20 +679,20 @@ def format_monthly_summary(station: str, year: int, month: int, station_data: di
     # Format with proper alignment
     msg = (
         f"📊 *MONTHLY SUMMARY*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"🏪 *Station:* {station}\n"
         f"📅 *Month:* {month_name} {year}\n"
         f"📆 *Days in month:* {total_days_in_month}\n"
         f"📈 *Days with data:* {days_with_data}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"```\n"
-        f"Fuel Type   | Total      | Avg/Day   | %\n"
+        f"Product | Total      | Avg/Day    | %\n"
         f"--------------------------------------------\n"
-        f"Diesel      | {total_diesel:>8.2f}L  | {avg_diesel:>8.2f}L  | {diesel_percent:>4.1f}%\n"
-        f"Regular     | {total_regular:>8.2f}L  | {avg_regular:>8.2f}L  | {regular_percent:>4.1f}%\n"
-        f"Super       | {total_super:>8.2f}L  | {avg_super:>8.2f}L  | {super_percent:>4.1f}%\n"
+        f"Diesel  | {total_diesel:>8.2f}L  | {avg_diesel:>8.2f}L  | {diesel_percent:>4.1f}%\n"
+        f"Regular | {total_regular:>8.2f}L  | {avg_regular:>8.2f}L  | {regular_percent:>4.1f}%\n"
+        f"Super   | {total_super:>8.2f}L  | {avg_super:>8.2f}L  | {super_percent:>4.1f}%\n"
         f"--------------------------------------------\n"
-        f"TOTAL       | {total_all:>8.2f}L  | {avg_total:>8.2f}L  | 100.0%\n"
+        f"TOTAL   | {total_all:>8.2f}L  | {avg_total:>8.2f}L  | 100.0%\n"
         f"```\n"
         f"📈 *Monthly Statistics:*\n"
         f"• 📊 Total volume: {total_all:,.2f}L\n"
@@ -710,6 +733,10 @@ def format_detailed_monthly_report(station: str, year: int, month: int) -> str:
             volume = record.get("total_volume", 0)
             amount = record.get("total_amount", 0)
             
+            # Skip if date_str is a format string
+            if not date_str or date_str.startswith('%'):
+                continue
+                
             if date_str not in daily_data:
                 daily_data[date_str] = {}
             
@@ -728,28 +755,31 @@ def format_detailed_monthly_report(station: str, year: int, month: int) -> str:
                 "amount": amount
             }
         
-        # Sort dates
-        sorted_dates = sorted(daily_data.keys(), 
-                            key=lambda x: parse_date_string(x))
+        if not daily_data:
+            month_name = calendar.month_name[month]
+            return f"⚠️ *No valid data found for {station} in {month_name} {year}*"
+        
+        # Sort dates safely
+        sorted_dates = sorted(daily_data.keys(), key=safe_date_sort)
         
         month_name = calendar.month_name[month]
         
         # Build message
         msg = (
             f"📊 *DETAILED MONTHLY REPORT*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏪 *Station:* {station}\n"
             f"📅 *Month:* {month_name} {year}\n"
             f"📆 *Days with data:* {days_with_data}\n"
             f"⛽ *Total Volume:* {total_volume:,.2f}L\n"
             f"💰 *Total Amount:* ${total_amount:,.2f}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
         )
         
         # Add daily breakdown
         msg += "```\n"
-        msg += "Date       | Diesel    | Regular   | Super     | Total     | Amount\n"
-        msg += "---------------------------------------------------------------------------\n"
+        msg += "Date| Diesel| Regular| Super| Grand Total \n"
+        msg += "-------------------------------------------\n"
         
         for date_str in sorted_dates:
             fuels = daily_data[date_str]
@@ -769,19 +799,12 @@ def format_detailed_monthly_report(station: str, year: int, month: int) -> str:
             super_amt = super_data.get("amount", 0) if isinstance(super_data, dict) else 0
             daily_amount = diesel_amt + regular_amt + super_amt
             
-            # Format date for display (dd/mm)
-            if "/" in date_str:
-                parts = date_str.split("/")
-                if len(parts) >= 2:
-                    display_date = parts[0] + "/" + parts[1]
-                else:
-                    display_date = date_str
-            else:
-                display_date = date_str[:5]
+            # Format date for display (yyyy/mm/dd)
+            display_date = date_str
             
-            msg += f"{display_date:10s} | {diesel_vol:8.2f}L | {regular_vol:8.2f}L | {super_vol:8.2f}L | {daily_total:8.2f}L | ${daily_amount:8.2f}\n"
+            msg += f"{display_date:5s}|{diesel_vol:2.2f}L|{regular_vol:2.2f}L|{super_vol:2.2f}L|{daily_total:2.2f}L\n"
         
-        msg += "---------------------------------------------------------------------------\n"
+        msg += "-------------------------------------------\n"
         
         # Calculate totals by fuel type
         total_diesel = sum(fuels.get("Diesel", {}).get("volume", 0) if isinstance(fuels.get("Diesel", {}), dict) else 0 for fuels in daily_data.values())
@@ -793,7 +816,7 @@ def format_detailed_monthly_report(station: str, year: int, month: int) -> str:
         total_regular_amt = sum(fuels.get("Regular", {}).get("amount", 0) if isinstance(fuels.get("Regular", {}), dict) else 0 for fuels in daily_data.values())
         total_super_amt = sum(fuels.get("Super", {}).get("amount", 0) if isinstance(fuels.get("Super", {}), dict) else 0 for fuels in daily_data.values())
         
-        msg += f"TOTAL      | {total_diesel:8.2f}L | {total_regular:8.2f}L | {total_super:8.2f}L | {total_volume:8.2f}L | ${total_amount:8.2f}\n"
+        msg += f"TOTAL| {total_diesel:2.2f}L|{total_regular:2.2f}L|{total_super:2.2f}L|{total_volume:2.2f}L\n"
         msg += "```\n"
         
         # Add statistics
@@ -845,6 +868,10 @@ def format_monthly_daybyday(station: str, year: int, month: int) -> str:
             volume = record.get("total_volume", 0)
             amount = record.get("total_amount", 0)
             
+            # Skip if date_str is a format string
+            if not date_str or date_str.startswith('%'):
+                continue
+                
             if date_str not in daily_data:
                 daily_data[date_str] = {}
             
@@ -863,9 +890,12 @@ def format_monthly_daybyday(station: str, year: int, month: int) -> str:
                 "amount": amount
             }
         
-        # Sort dates
-        sorted_dates = sorted(daily_data.keys(), 
-                            key=lambda x: parse_date_string(x))
+        if not daily_data:
+            month_name = calendar.month_name[month]
+            return f"⚠️ *No valid data found for {station} in {month_name} {year}*"
+        
+        # Sort dates safely
+        sorted_dates = sorted(daily_data.keys(), key=safe_date_sort)
         
         month_name = calendar.month_name[month]
         days_with_data = len(sorted_dates)
@@ -873,11 +903,11 @@ def format_monthly_daybyday(station: str, year: int, month: int) -> str:
         # Build message with pagination
         msg = (
             f"📅 *DAY-BY-DAY REPORT*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏪 *Station:* {station}\n"
             f"📅 *Month:* {month_name} {year}\n"
             f"📆 *Days with data:* {days_with_data}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
         )
         
         # Add each day's details
@@ -908,7 +938,7 @@ def format_monthly_daybyday(station: str, year: int, month: int) -> str:
             msg += f"  • Total: {daily_total:7.2f}L (${daily_amount:.2f})\n"
             
             if i < len(sorted_dates):
-                msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                msg += "━━━━━━━━━━━━━━━━━━━━━\n"
         
         return msg
         
@@ -939,26 +969,32 @@ def format_monthly_all_data(station: str, year: int, month: int) -> str:
         # Build header
         msg = (
             f"📋 *COMPLETE MONTHLY DATA*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏪 *Station:* {station}\n"
             f"📅 *Month:* {month_name} {year}\n"
             f"📊 *Records:* {record_count}\n"
             f"📆 *Days with data:* {days_with_data}\n"
             f"⛽ *Total Volume:* {total_volume:,.2f}L\n"
             f"💰 *Total Amount:* ${total_amount:,.2f}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
         )
         
         # Group by date
         date_groups = defaultdict(list)
         for record in details:
             date_str = record.get("report_date", "")
+            # Skip if date_str is a format string
+            if not date_str or date_str.startswith('%'):
+                continue
+                
             if date_str:
                 date_groups[date_str].append(record)
         
-        # Sort dates
-        sorted_dates = sorted(date_groups.keys(), 
-                            key=lambda x: parse_date_string(x))
+        if not date_groups:
+            return f"⚠️ *No valid data found for {station} in {month_name} {year}*"
+        
+        # Sort dates safely
+        sorted_dates = sorted(date_groups.keys(), key=safe_date_sort)
         
         # Add data for each date
         for date_str in sorted_dates:
@@ -997,7 +1033,7 @@ def format_monthly_all_data(station: str, year: int, month: int) -> str:
         total_days_in_month = calendar.monthrange(year, month)[1]
         days_without_data = total_days_in_month - days_with_data
         
-        msg += f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"\━━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"📈 *Summary for {month_name} {year}:*\n"
         msg += f"• Total days in month: {total_days_in_month}\n"
         msg += f"• Days with data: {days_with_data}\n"
@@ -1057,9 +1093,9 @@ def consolidate_station_summary(station: str, station_dates: dict) -> str:
     msg += "```\n"
     msg += "Fuel Type   | Total Volume | Percentage\n"
     msg += "--------------------------------------------\n"
-    msg += f"Diesel      | {total_diesel:>12.2f}L | {diesel_percent:>9.1f}%\n"
+    msg += f"Diesel      | {total_diesel:>12.2f}L  | {diesel_percent:>9.1f}%\n"
     msg += f"Regular     | {total_regular:>12.2f}L | {regular_percent:>9.1f}%\n"
-    msg += f"Super       | {total_super:>12.2f}L | {super_percent:>9.1f}%\n"
+    msg += f"Super       | {total_super:>12.2f}L   | {super_percent:>9.1f}%\n"
     msg += "--------------------------------------------\n"
     msg += f"TOTAL       | {grand_total:>12.2f}L | 100.0%\n"
     msg += "```"
@@ -1071,7 +1107,7 @@ def consolidate_station_summary(station: str, station_dates: dict) -> str:
     return msg
 
 def format_single_day_report(station: str, report_date: str, fuels: dict) -> str:
-    """Format a report for a single day. report_date is in dd/mm/yy format."""
+    """Format a report for a single day. report_date is in yyyy/mm/dd format."""
     # Normalize fuel keys to English names
     normalized_fuels = {}
     for k, v in fuels.items():
@@ -1108,18 +1144,18 @@ def format_single_day_report(station: str, report_date: str, fuels: dict) -> str
     
     msg = (
         f"📊 *DAILY REPORT*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"🏪 *Station:* {station}\n"
         f"📅 *Date:* {report_date}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"```\n"
-        f"Fuel Type   | Volume     | %     | Visual\n"
-        f"------------------------------------------------\n"
-        f"Diesel      | {diesel:>8.2f}L  | {diesel_percent:>4.1f}% | {diesel_bar}\n"
-        f"Regular     | {regular:>8.2f}L  | {regular_percent:>4.1f}% | {regular_bar}\n"
-        f"Super       | {super:>8.2f}L  | {super_percent:>4.1f}% | {super_bar}\n"
-        f"------------------------------------------------\n"
-        f"TOTAL       | {total_volume:>8.2f}L  | 100.0%\n"
+        f"Product | Volume    | %         | Visual\n"
+        f"--------------------------------------------\n"
+        f"Diesel  | {diesel:>4.2f}L   | {diesel_percent:>2.1f}%     | {diesel_bar}\n"
+        f"Regular | {regular:>4.2f}L  | {regular_percent:>2.1f}%     | {regular_bar}\n"
+        f"Super   | {super:>4.2f}L   | {super_percent:>2.1f}%     | {super_bar}\n"
+        f"--------------------------------------------\n"
+        f"TOTAL   | {total_volume:>4.2f}L  | 100.0%\n"
         f"```\n"
         f"📈 *Summary:*\n"
         f"• ⛽ Diesel: {diesel:.2f}L ({diesel_percent:.1f}%)\n"
@@ -1137,14 +1173,14 @@ def format_range_summary(station: str, start_date: str, end_date: str, station_d
     
     dates_data = station_data[station]
     
-    # Sort dates
+    # Sort dates safely
     date_items = []
     for db_date, fuels in dates_data.items():
-        # Dates are already in dd/mm/yy format
+        # Dates are already in yyyy/mm/dd format
         date_items.append((db_date, fuels))
     
-    # Sort by parsing dates
-    date_items.sort(key=lambda x: parse_date_string(x[0]))
+    # Sort by safe date parsing
+    date_items.sort(key=lambda x: safe_date_sort(x[0]))
     
     if not date_items:
         return None
@@ -1211,11 +1247,11 @@ def format_range_summary(station: str, start_date: str, end_date: str, station_d
 
     msg = (
         f"📊 *RANGE SUMMARY*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"🏪 *Station:* {station}\n"
         f"📅 *Period:* {start_date} to {end_date}\n"
         f"📆 *Days with data:* {days_count}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"```\n"
         f"Fuel Type   | Total      | Avg/Day   | %\n"
         f"--------------------------------------------\n"
@@ -1223,7 +1259,7 @@ def format_range_summary(station: str, start_date: str, end_date: str, station_d
         f"Regular     | {total_regular:>8.2f}L  | {avg_regular:>8.2f}L  | {regular_percent:>4.1f}%\n"
         f"Super       | {total_super:>8.2f}L  | {avg_super:>8.2f}L  | {super_percent:>4.1f}%\n"
         f"--------------------------------------------\n"
-        f"TOTAL       | {total_all:>8.2f}L  | {avg_total:>8.2f}L  | 100.0%\n"
+        f"TOTAL     | {total_all:>8.2f}L | {avg_total:>8.2f}L | 100.0%\n"
         f"```\n"
         f"📈 *Statistics:*\n"
         f"• 📈 Highest sales day: {max_day} ({max_volume:.2f}L)\n"
@@ -1290,10 +1326,10 @@ async def handle_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             confirm_msg = (
                 "✅ *REPORT SAVED SUCCESSFULLY!*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🏪 *Station:* {station}\n"
                 f"📅 *Date:* {report_date}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
             )
             
             if fuel_data:
@@ -1337,7 +1373,7 @@ async def handle_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         error_msg = (
             "❌ *Failed to process report!*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             f"Error: `{str(e)[:200]}`\n\n"
             "Please check the report format and try again."
         )
@@ -1365,7 +1401,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if not stations:
             await query.edit_message_text(
                 "📭 *Still no stations found*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━\n"
                 "Please send some daily fuel reports first.",
                 parse_mode="Markdown"
             )
@@ -1373,7 +1409,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
         message = (
             "📊 *VIEW REPORTS*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             "🏪 *SELECT A STATION*\n"
             f"Available stations: *{len(stations)}*\n\n"
             "Choose a station to view its reports:"
@@ -1397,7 +1433,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         stations = get_all_stations()
         message = (
             "🏪 *SELECT A STATION*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             f"Available stations: *{len(stations)}*\n\n"
             "Choose a station to view its reports:"
         )
@@ -1413,7 +1449,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         station = data.split(":", 1)[1]
         await query.edit_message_text(
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 *SELECT DATE OPTION:*",
             parse_mode="Markdown",
             reply_markup=create_date_keyboard(station)
@@ -1428,7 +1464,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # Handle today in calendar
     if data.startswith("today_cal:"):
         station = data.split(":", 1)[1]
-        today_display = get_today_display()
+        today_display = get_today()
         await query.edit_message_text(f"⏳ Loading report for {today_display}...", parse_mode="Markdown")
         
         # Generate report for today
@@ -1442,8 +1478,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         # Get the date in database format
-        db_date = normalize_date_to_db(today_display)
-        fuels = station_data[station].get(db_date, {})
+        fuels = station_data[station].get(today_display, {})
         
         if not fuels:
             await query.edit_message_text(
@@ -1453,7 +1488,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         # Format and send single day report
-        report_msg = format_single_day_report(station, db_date, fuels)
+        report_msg = format_single_day_report(station, today_display, fuels)
         await query.edit_message_text(report_msg, parse_mode="Markdown")
         return
     
@@ -1499,7 +1534,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 
                 message = (
                     f"⛽ *Selected Station:* {station}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "━━━━━━━━━━━━━━━━━━━━━\n"
                     "📅 *SELECT DATE OPTION:*\n"
                     "• Today/Yesterday - Single day report\n"
                     "• Last 7/30 days - Range report\n"
@@ -1522,7 +1557,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         station = data.split(":", 1)[1]
         await query.edit_message_text(
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 *SELECT DATE OPTION:*",
             parse_mode="Markdown",
             reply_markup=create_date_keyboard(station)
@@ -1533,7 +1568,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("date_single:"):
         parts = data.split(":")
         station = parts[1]
-        selected_date = parts[2]  # Already in dd/mm/yy format
+        selected_date = parts[2]  # Already in yyyy/mm/dd format
         
         await query.edit_message_text(f"⏳ Loading report for {selected_date}...", parse_mode="Markdown")
         
@@ -1547,9 +1582,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
         
-        # Get the date in database format
-        db_date = normalize_date_to_db(selected_date)
-        fuels = station_data[station].get(db_date, {})
+        fuels = station_data[station].get(selected_date, {})
         
         if not fuels:
             await query.edit_message_text(
@@ -1559,7 +1592,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         # Format and send single day report
-        report_msg = format_single_day_report(station, db_date, fuels)
+        report_msg = format_single_day_report(station, selected_date, fuels)
         await query.edit_message_text(report_msg, parse_mode="Markdown")
         return
     
@@ -1572,8 +1605,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         end_date = date.today()
         start_date = end_date - timedelta(days=days-1)
         
-        start_date_display = format_date_for_display(start_date)
-        end_date_display = format_date_for_display(end_date)
+        start_date_display = format_date(start_date)
+        end_date_display = format_date(end_date)
         
         await query.edit_message_text(f"⏳ Generating {days}-day report from {start_date_display} to {end_date_display}...", parse_mode="Markdown")
         
@@ -1606,7 +1639,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
         message = (
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 *SELECT A MONTH*\n\n"
             "Choose a month to view monthly report:"
         )
@@ -1623,7 +1656,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
         message = (
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             f"📅 *SELECT A MONTH ({year})*\n\n"
             "Choose a month to view monthly report:"
         )
@@ -1656,7 +1689,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         # Show report type selection
         message = (
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             f"📅 *Monthly Report: {month_name} {year}*\n\n"
             "Select report type:"
         )
@@ -1677,7 +1710,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
         message = (
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             f"📅 *Confirm Monthly Report*\n\n"
             f"Month: *{month_name} {year}*\n"
             f"Period: {start_date} to {end_date}\n\n"
@@ -1700,7 +1733,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         # Show report type selection
         message = (
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             f"📅 *Monthly Report: {month_name} {year}*\n\n"
             "Select report type:"
         )
@@ -1891,7 +1924,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
         message = (
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 *SELECT A MONTH*\n\n"
             "Choose a month to view monthly report:"
         )
@@ -1920,7 +1953,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("caldate:") or data.startswith("cd:") or data.startswith("c:"):
         parts = data.split(":")
         station = parts[1]
-        selected_date = parts[2]  # Already in dd/mm/yy format
+        selected_date = parts[2]  # Already in yyyy/mm/dd format
         
         await query.edit_message_text(f"⏳ Loading report for {selected_date}...", parse_mode="Markdown")
         
@@ -1934,9 +1967,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
         
-        # Get the date in database format
-        db_date = normalize_date_to_db(selected_date)
-        fuels = station_data[station].get(db_date, {})
+        fuels = station_data[station].get(selected_date, {})
         
         if not fuels:
             await query.edit_message_text(
@@ -1946,7 +1977,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         # Format and send single day report
-        report_msg = format_single_day_report(station, db_date, fuels)
+        report_msg = format_single_day_report(station, selected_date, fuels)
         await query.edit_message_text(report_msg, parse_mode="Markdown")
         return
     
@@ -1954,7 +1985,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("quickdate:"):
         parts = data.split(":")
         station = parts[1]
-        selected_date = parts[2]  # Already in dd/mm/yy format
+        selected_date = parts[2]  # Already in yyyy/mm/dd format
         
         await query.edit_message_text(f"⏳ Loading report for {selected_date}...", parse_mode="Markdown")
         
@@ -1968,9 +1999,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
         
-        # Get the date in database format
-        db_date = normalize_date_to_db(selected_date)
-        fuels = station_data[station].get(db_date, {})
+        fuels = station_data[station].get(selected_date, {})
         
         if not fuels:
             await query.edit_message_text(
@@ -1980,7 +2009,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         # Format and send single day report
-        report_msg = format_single_day_report(station, db_date, fuels)
+        report_msg = format_single_day_report(station, selected_date, fuels)
         await query.edit_message_text(report_msg, parse_mode="Markdown")
         return
     
@@ -1988,7 +2017,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("confirm_date:"):
         parts = data.split(":")
         station = parts[1]
-        selected_date = parts[2]  # Already in dd/mm/yy format
+        selected_date = parts[2]  # Already in yyyy/mm/dd format
         
         await query.edit_message_text(f"⏳ Loading report for {selected_date}...", parse_mode="Markdown")
         
@@ -2002,9 +2031,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
         
-        # Get the date in database format
-        db_date = normalize_date_to_db(selected_date)
-        fuels = station_data[station].get(db_date, {})
+        fuels = station_data[station].get(selected_date, {})
         
         if not fuels:
             await query.edit_message_text(
@@ -2014,7 +2041,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         # Format and send single day report
-        report_msg = format_single_day_report(station, db_date, fuels)
+        report_msg = format_single_day_report(station, selected_date, fuels)
         await query.edit_message_text(report_msg, parse_mode="Markdown")
         return
     
@@ -2023,7 +2050,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         station = data.split(":", 1)[1]
         await query.edit_message_text(
             f"⛽ *Selected Station:* {station}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 *SELECT DATE OPTION:*",
             parse_mode="Markdown",
             reply_markup=create_date_keyboard(station)
@@ -2071,7 +2098,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         # Parse current date and subtract one day
         current_date = parse_date_string(current_date_str)
         prev_date = current_date - timedelta(days=1)
-        prev_date_str = format_date_for_display(prev_date)
+        prev_date_str = format_date(prev_date)
         
         await query.edit_message_text(f"⏳ Loading report for {prev_date_str}...", parse_mode="Markdown")
         
@@ -2085,9 +2112,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
         
-        # Get the date in database format
-        db_date = normalize_date_to_db(prev_date_str)
-        fuels = station_data[station].get(db_date, {})
+        fuels = station_data[station].get(prev_date_str, {})
         
         if not fuels:
             await query.edit_message_text(
@@ -2097,7 +2122,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         # Format and send single day report
-        report_msg = format_single_day_report(station, db_date, fuels)
+        report_msg = format_single_day_report(station, prev_date_str, fuels)
         await query.edit_message_text(report_msg, parse_mode="Markdown")
         return
     
@@ -2110,7 +2135,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         # Parse current date and add one day
         current_date = parse_date_string(current_date_str)
         next_date = current_date + timedelta(days=1)
-        next_date_str = format_date_for_display(next_date)
+        next_date_str = format_date(next_date)
         
         await query.edit_message_text(f"⏳ Loading report for {next_date_str}...", parse_mode="Markdown")
         
@@ -2124,9 +2149,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
         
-        # Get the date in database format
-        db_date = normalize_date_to_db(next_date_str)
-        fuels = station_data[station].get(db_date, {})
+        fuels = station_data[station].get(next_date_str, {})
         
         if not fuels:
             await query.edit_message_text(
@@ -2136,7 +2159,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
         
         # Format and send single day report
-        report_msg = format_single_day_report(station, db_date, fuels)
+        report_msg = format_single_day_report(station, next_date_str, fuels)
         await query.edit_message_text(report_msg, parse_mode="Markdown")
         return
     
@@ -2145,9 +2168,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         station = data.split(":", 1)[1]
         await query.edit_message_text(
             f"⛽ *{station}*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "📅 Please send a date in *dd/mm/yy* format.\n\n"
-            "Example: `27/12/25`",
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "📅 Please send a date in *yyyy/mm/dd* format.\n\n"
+            "Example: `2024/12/27`",
             parse_mode="Markdown"
         )
         # Store state for custom date input
@@ -2162,7 +2185,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command to check if bot is running."""
     welcome_msg = (
         "🤖 *KONCHAT FUEL REPORT BOT*\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
         "Welcome! This bot helps manage and view fuel station reports.\n\n"
         "📋 *AVAILABLE COMMANDS:*\n"
         "/report - View reports by station and date\n"
@@ -2194,7 +2217,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info("No stations in database yet")
             await update.message.reply_text(
                 "📭 *No station data available yet.*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "━━━━━━━━━━━━━━━━━━━━━\n"
                 "Please send some daily fuel reports first.\n\n"
                 "📋 *How to add reports:*\n"
                 "1. Copy and paste a daily fuel report\n"
@@ -2207,7 +2230,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Show station selection
         message = (
             "📊 *VIEW REPORTS*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             "🏪 *SELECT A STATION*\n"
             f"Available stations: *{len(stations)}*\n\n"
             "Choose a station to view its reports:"
@@ -2222,7 +2245,7 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(
             "❌ *Error loading report viewer*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             "An error occurred while trying to load the report viewer.\n"
             f"Error: `{str(e)[:100]}`\n\n"
             "Please try again or use /testdb to check the database.",
@@ -2241,8 +2264,8 @@ async def stations_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get report counts for each station
         today = date.today()
         thirty_days_ago = today - timedelta(days=30)
-        start_date_db = format_date_for_db(thirty_days_ago)
-        end_date_db = format_date_for_db(today)
+        start_date_db = format_date(thirty_days_ago)
+        end_date_db = format_date(today)
         
         rows = get_summary(start_date_db, end_date_db)
         
@@ -2268,7 +2291,7 @@ async def stations_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Sort by total reports
         station_stats.sort(key=lambda x: x["total_reports"], reverse=True)
         
-        message = "🏪 *AVAILABLE STATIONS*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        message = "🏪 *AVAILABLE STATIONS*\━━━━━━━━━━━━━━━━━━━━━\n"
         
         for i, stats in enumerate(station_stats, 1):
             message += f"{i}. *{stats['name']}*\n"
@@ -2329,7 +2352,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         message = (
             f"📊 *STATISTICS OVERVIEW*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"📅 *Date Range:* {date_range}\n"
             f"📁 *Total Reports:* {len(rows)}\n"
             f"⛽ *Total Volume:* {total_volume:,.2f}L\n"
@@ -2358,21 +2381,20 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show today's report for all stations."""
     try:
         today_date = date.today()
-        today_display = format_date_for_display(today_date)
+        today_display = format_date(today_date)
         station_data, rows = generate_summary_by_period(today_display, today_display)
         
         if not station_data:
             await update.message.reply_text(f"📭 No reports for today ({today_display}).")
             return
         
-        message = f"📊 *TODAY'S REPORTS* ({today_display})\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        message = f"📊 *TODAY'S REPORTS* ({today_display})\━━━━━━━━━━━━━━━━━━━━━\n"
         
         total_diesel = total_regular = total_super = 0
         
         for station, dates in station_data.items():
-            today_db = format_date_for_db(today_date)
-            if today_db in dates:
-                fuels = dates[today_db]
+            if today_display in dates:
+                fuels = dates[today_display]
                 # Normalize to English names
                 normalized_fuels = {}
                 for k, v in fuels.items():
@@ -2387,19 +2409,19 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         normalized_fuels[key] = v
                 
                 diesel = normalized_fuels.get("Diesel", 0)
-                total_regular = normalized_fuels.get("Regular", 0)
-                total_super = normalized_fuels.get("Super", 0)
-                total = diesel + total_regular + total_super
+                regular = normalized_fuels.get("Regular", 0)
+                super = normalized_fuels.get("Super", 0)
+                total = diesel + regular + super
                 
                 total_diesel += diesel
-                total_regular += total_regular
-                total_super += total_super
+                total_regular += regular
+                total_super += super
                 
                 message += f"⛽ *{station}*\n"
-                message += f"  Diesel: {diesel:7.2f}L | Regular: {total_regular:7.2f}L | Super: {total_super:7.2f}L | Total: {total:7.2f}L\n\n"
+                message += f"  Diesel: {diesel:7.2f}L | Regular: {regular:7.2f}L | Super: {super:7.2f}L | Total: {total:7.2f}L\n\n"
         
         grand_total = total_diesel + total_regular + total_super
-        message += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        message += f"━━━━━━━━━━━━━━━━━━━━━\n"
         if grand_total > 0:
             message += f"📊 *TOTAL TODAY:* {grand_total:,.2f}L\n"
             message += f"• Diesel: {total_diesel:,.2f}L ({total_diesel/grand_total*100:.1f}%)\n"
@@ -2420,21 +2442,20 @@ async def yesterday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show yesterday's report for all stations."""
     try:
         yesterday_date = date.today() - timedelta(days=1)
-        yesterday_display = format_date_for_display(yesterday_date)
+        yesterday_display = format_date(yesterday_date)
         station_data, rows = generate_summary_by_period(yesterday_display, yesterday_display)
         
         if not station_data:
             await update.message.reply_text(f"📭 No reports for yesterday ({yesterday_display}).")
             return
         
-        message = f"📊 *YESTERDAY'S REPORTS* ({yesterday_display})\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        message = f"📊 *YESTERDAY'S REPORTS* ({yesterday_display})\━━━━━━━━━━━━━━━━━━━━━\n"
         
         total_diesel = total_regular = total_super = 0
         
         for station, dates in station_data.items():
-            yesterday_db = format_date_for_db(yesterday_date)
-            if yesterday_db in dates:
-                fuels = dates[yesterday_db]
+            if yesterday_display in dates:
+                fuels = dates[yesterday_display]
                 # Normalize to English names
                 normalized_fuels = {}
                 for k, v in fuels.items():
@@ -2449,19 +2470,19 @@ async def yesterday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         normalized_fuels[key] = v
                 
                 diesel = normalized_fuels.get("Diesel", 0)
-                total_regular = normalized_fuels.get("Regular", 0)
-                total_super = normalized_fuels.get("Super", 0)
-                total = diesel + total_regular + total_super
+                regular = normalized_fuels.get("Regular", 0)
+                super = normalized_fuels.get("Super", 0)
+                total = diesel + regular + super
                 
                 total_diesel += diesel
-                total_regular += total_regular
-                total_super += total_super
+                total_regular += regular
+                total_super += super
                 
                 message += f"⛽ *{station}*\n"
-                message += f"  Diesel: {diesel:7.2f}L | Regular: {total_regular:7.2f}L | Super: {total_super:7.2f}L | Total: {total:7.2f}L\n\n"
+                message += f"  Diesel: {diesel:7.2f}L | Regular: {regular:7.2f}L | Super: {super:7.2f}L | Total: {total:7.2f}L\n\n"
         
         grand_total = total_diesel + total_regular + total_super
-        message += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        message += f"━━━━━━━━━━━━━━━━━━━━━\n"
         message += f"📊 *TOTAL YESTERDAY:* {grand_total:,.2f}L"
         
         await update.message.reply_text(message, parse_mode="Markdown")
@@ -2484,7 +2505,7 @@ async def weekly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"📭 No reports for the last 7 days ({start_date_display} to {end_date_display}).")
             return
         
-        message = f"📊 *WEEKLY SUMMARY* (Last 7 days)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        message = f"📊 *WEEKLY SUMMARY* (Last 7 days)\━━━━━━━━━━━━━━━━━━━━━\n"
         message += f"📅 *Period:* {start_date_display} to {end_date_display}\n\n"
         
         # Calculate totals per station
@@ -2538,8 +2559,8 @@ async def monthly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not station_data:
             await update.message.reply_text(f"📭 No reports for the last 30 days ({start_date_display} to {end_date_display}).")
             return
-        
-        message = f"📊 *MONTHLY SUMMARY* (Last 30 days)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+        message = f"📊 *MONTHLY SUMMARY* (Last 30 days)\n━━━━━━━━━━━━━━━━━━━━━\n"
         message += f"📅 *Period:* {start_date_display} to {end_date_display}\n\n"
         
         # Calculate totals and find top station
@@ -2601,8 +2622,8 @@ async def test_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stations = get_all_stations()
         today = date.today()
         thirty_days_ago = today - timedelta(days=30)
-        start_date_db = format_date_for_db(thirty_days_ago)
-        end_date_db = format_date_for_db(today)
+        start_date_db = format_date(thirty_days_ago)
+        end_date_db = format_date(today)
         
         summary = get_summary(start_date_db, end_date_db)
         
@@ -2619,7 +2640,7 @@ async def test_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         message = (
             "🧪 *DATABASE TEST*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n"
             f"✅ Database connection: OK\n"
             f"📊 Stations in DB: {len(stations)}\n"
             f"📈 Reports in last 30 days: {len(summary)}\n"
@@ -2647,7 +2668,7 @@ async def test_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += f"• Stations: {monthly_aggregate.get('station_count', 0)}\n"
             message += f"• Days with data: {monthly_aggregate.get('days_with_data', 0)}\n"
         
-        message += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        message += "━━━━━━━━━━━━━━━━━━━━━\n"
         message += "Use /report to view reports"
         
         await update.message.reply_text(message, parse_mode="Markdown")
@@ -2678,7 +2699,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             # Parse the date
             selected_date = parse_date_string(date_input)
-            selected_date_str = format_date_for_display(selected_date)
+            selected_date_str = format_date(selected_date)
             
             await update.message.reply_text(f"⏳ Loading report for {selected_date_str}...", parse_mode="Markdown")
             
@@ -2695,9 +2716,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     del user_selections[user_id]["waiting_for_date"]
                 return
             
-            # Get the date in database format
-            db_date = normalize_date_to_db(selected_date_str)
-            fuels = station_data[station].get(db_date, {})
+            fuels = station_data[station].get(selected_date_str, {})
             
             if not fuels:
                 await update.message.reply_text(
@@ -2710,7 +2729,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             # Format and send single day report
-            report_msg = format_single_day_report(station, db_date, fuels)
+            report_msg = format_single_day_report(station, selected_date_str, fuels)
             await update.message.reply_text(report_msg, parse_mode="Markdown")
             
             # Clear waiting state
@@ -2721,8 +2740,8 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error processing custom date input: {e}")
             await update.message.reply_text(
                 f"❌ *Invalid date format*\n\n"
-                f"Please send a date in *dd/mm/yy* format.\n"
-                f"Example: `27/12/25`\n\n"
+                f"Please send a date in *yyyy/mm/dd* format.\n"
+                f"Example: `2024/12/27`\n\n"
                 f"Error: `{str(e)[:100]}`",
                 parse_mode="Markdown"
             )
@@ -2782,7 +2801,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             full_message = (
                 f"{error_msg}\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"Error type: `{error_type}`\n"
                 f"Please try again or contact support."
             )
@@ -2875,10 +2894,9 @@ def main():
     logger.info("   • 📈 Detailed - Day-by-day breakdown with amounts")
     logger.info("   • 📋 Day-by-Day - Each day's full data")
     logger.info("   • 📅 All Data - Complete monthly records")
-    logger.info("\n💡 TIPS:")
-    logger.info("   • Monthly detailed reports now show both volume and amount")
-    logger.info("   • Reports are automatically split if they exceed Telegram limits")
-    logger.info("   • Use /testdb to verify database functions")
+    logger.info("\n📅 DATE FORMAT:")
+    logger.info("   • All dates now use yyyy/mm/dd format")
+    logger.info("   • Example: 2024/12/27")
     
     try:
         app.run_polling(

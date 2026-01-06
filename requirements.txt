@@ -1,3 +1,32 @@
-# requirements.txt
-python-telegram-bot==20.3
+# Telegram Bot
+python-telegram-bot==20.7
+python-telegram-bot[job-queue]==20.7
+
+# Database
+mysql-connector-python==8.1.0
+pymysql==1.1.0
+SQLAlchemy==2.0.25
+
+# Environment
 python-dotenv==1.0.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2024.1
+emoji==2.11.1
+
+# HTTP/Web
+requests==2.31.0
+aiohttp==3.9.1
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Logging
+structlog==24.1.0
+colorlog==6.8.2
+
+# Development
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0
