@@ -71,9 +71,11 @@ def create_main_menu() -> InlineKeyboardMarkup:
     """Main menu keyboard."""
     keyboard = [
         [InlineKeyboardButton("📊 View Reports", callback_data="view_reports")],
-        [InlineKeyboardButton("🏪 All Stations", callback_data="all_stations")],
-
+      
     ]
+    """  [InlineKeyboardButton("📈 Quick Stats", callback_data="quick_stats")],
+        [InlineKeyboardButton("🏪 All Stations", callback_data="all_stations")],
+        [InlineKeyboardButton("🧪 Test DB", callback_data="test_db")] """
     return InlineKeyboardMarkup(keyboard)
 
 def create_station_keyboard() -> InlineKeyboardMarkup:
@@ -351,7 +353,17 @@ def format_range_summary(station: str, report_data: dict) -> str:
         period_display = f"{start_obj.day:02d}/{start_obj.month:02d} - {end_obj.day:02d}/{end_obj.month:02d}/{end_obj.year}"
     except:
         period_display = f"{start_date} to {end_date}"
-    
+    # Create summary table (converted from your bullet format)
+    summary_table = "```\n"
+    summary_table += f"{'Fuel':<6} | {'Volume':>13} | {'%':>5}\n"
+    summary_table += f"{'-'*32}\n"
+    summary_table += f"{'DO':<6} | {total_diesel:>12,.2f}L | {diesel_pct:>5.1f}%\n"
+    summary_table += f"{'EA92':<6} | {total_regular:>12,.2f}L | {regular_pct:>5.1f}%\n"
+    summary_table += f"{'EA95':<6} | {total_super:>12,.2f}L | {super_pct:>5.1f}%\n"
+    summary_table += f"{'-'*32}\n"
+    summary_table += f"{'Total':<6} | {total_volume:>12,.2f}L | {'100.0':>5}%\n"
+    summary_table += f"{'Avg':<6} | {avg_daily:>12,.2f}L\n"
+    summary_table += "```\n"
     # Build message
     msg = (
         f"📊 *RANGE REPORT*\n"
@@ -362,12 +374,8 @@ def format_range_summary(station: str, report_data: dict) -> str:
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"{table}"
         f"📈 *Summary*\n"
-        f"• DO    :    {total_diesel:>8,.2f}L  | {diesel_pct:>4.1f}%\n"
-        f"• EA92 :    {total_regular:>8,.2f}L | {regular_pct:>4.1f}%\n"
-        f"• EA95 :    {total_super:>8,.2f}L  | {super_pct:>4.1f}%\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"• Total       :    {total_volume:,.2f}L\n"
-        f"• Avg/Day :   {avg_daily:,.2f}L"
+        f"{summary_table}"
     )
     
     return msg
@@ -477,7 +485,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await query.edit_message_text(msg, parse_mode="Markdown")
         return
-        """
+    """
     # Cancel
     elif data == "cancel":
         await query.edit_message_text("❌ Cancelled")
@@ -613,100 +621,7 @@ def format_date_display(date_str: str) -> str:
     except:
         return date_str
 
-def format_monthly_report_table(station: str, year: int, month: int, station_rows: list) -> str:
-    """Format monthly report with table showing daily data in dd/mm format."""
-    if not station_rows:
-        return f"⚠️ No data for {station} in {year}/{month:02d}"
-    
-    # Organize data by date
-    daily_data = {}
-    total_diesel = total_regular = total_super = 0
-    
-    for row in station_rows:
-        date_str = row["report_date"]
-        fuel_type = row["fuel_type"]
-        volume = row["volume"]
-        
-        if date_str not in daily_data:
-            daily_data[date_str] = {"DO": 0, "EA92": 0, "EA95": 0}
-        
-        # Normalize fuel names to DO, EA92, EA95
-        if "Diesel" in fuel_type or "Diesel" in fuel_type.upper() or "DO" in fuel_type.upper():
-            daily_data[date_str]["DO"] += volume
-            total_diesel += volume
-        elif "Regular" in fuel_type or "92" in fuel_type:
-            daily_data[date_str]["EA92"] += volume
-            total_regular += volume
-        elif "Super" in fuel_type or "95" in fuel_type:
-            daily_data[date_str]["EA95"] += volume
-            total_super += volume
-    
-    # Sort dates
-    sorted_dates = sorted(daily_data.keys())
-    days = len(sorted_dates)
-    total_volume = total_diesel + total_regular + total_super
-    avg_daily = total_volume / days if days > 0 else 0
-    
-    # Calculate percentages
-    diesel_pct = (total_diesel / total_volume * 100) if total_volume > 0 else 0
-    regular_pct = (total_regular / total_volume * 100) if total_volume > 0 else 0
-    super_pct = (total_super / total_volume * 100) if total_volume > 0 else 0
-    
-    # Build table with dd/mm format
-    table = "```\n"
-    table += f"{'Date':<5} | {'DO':>7} | {'EA92':>7} | {'EA95':>7} | {'Total':>8}\n"
-    table += "-" * 46 + "\n"
-    
-    for date_str in sorted_dates:
-        fuels = daily_data[date_str]
-        diesel = fuels.get("DO", 0)
-        regular = fuels.get("EA92", 0)
-        super_fuel = fuels.get("EA95", 0)
-        daily_total = diesel + regular + super_fuel
-        
-        # Format date as dd/mm
-        display_date = format_date_display(date_str)
-        
-        table += f"{display_date:<5} | "
-        table += f"{diesel:>7.2f} | "
-        table += f"{regular:>7.2f} | "
-        table += f"{super_fuel:>7.2f} | "
-        table += f"{daily_total:>8.2f}\n"
-    
-    # Add totals row
-    table += "-" * 46 + "\n"
-    table += f"{'TOTAL':<5} | "
-    table += f"{total_diesel:>7.2f} | "
-    table += f"{total_regular:>7.2f} | "
-    table += f"{total_super:>7.2f} | "
-    table += f"{total_volume:>8.2f}\n"
-    table += "```\n"
-    
-    # Full month name for better display
-    month_names = ["January", "February", "March", "April", "May", "June",
-                   "July", "August", "September", "October", "November", "December"]
-    month_name = month_names[month - 1]
-    
-    # Build message
-    msg = (
-        f"📊 *MONTHLY REPORT*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🏪 {station}\n"
-        f"📅 {month_name} {year}\n"
-        f"📆 Days with data: {days}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{table}"
-        f"📈 *Summary*\n"
-        f"Diesel    :     {total_diesel:,.2f}L\n"
-        f"Regular   :     {total_regular:,.2f}L\n"
-        f"Super     :     {total_super:,.2f}L\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Total:    {total_volume:,.2f}L\n"
-        f"Avg/Day:  {avg_daily:,.2f}L\n"
-        f"━━━━━━━━━━━━━━━━━━━━━"
-    )
-    
-    return msg
+
 def format_monthly_report_table(station: str, year: int, month: int, station_rows: list) -> str:
     """Format monthly report with table showing daily data in dd/mm format."""
     if not station_rows:
@@ -780,7 +695,17 @@ def format_monthly_report_table(station: str, year: int, month: int, station_row
     month_names = ["January", "February", "March", "April", "May", "June",
                    "July", "August", "September", "October", "November", "December"]
     month_name = month_names[month - 1]
-    
+     # Build summary table (converted from your bullet format)
+    summary_table = "```\n"
+    summary_table += f"{'Fuel':<6} | {'Volume':>13}L | {'%':>5}\n"
+    summary_table += f"{'-'*32}\n"
+    summary_table += f"{'DO':<6} | {total_diesel:>12,.2f} L | {diesel_pct:>5.1f}%\n"
+    summary_table += f"{'EA92':<6} | {total_regular:>12,.2f} L | {regular_pct:>5.1f}%\n"
+    summary_table += f"{'EA95':<6} | {total_super:>12,.2f} L | {super_pct:>5.1f}%\n"
+    summary_table += f"{'-'*32}\n"
+    summary_table += f"{'Total':<6} | {total_volume:>12,.2f} L | 100.0%\n"
+    summary_table += f"{'Avg':<6} | {avg_daily:>12,.2f} L\n"
+    summary_table += "```\n"
     # Build message
     msg = (
         f"📊 *MONTHLY REPORT*\n"
@@ -791,12 +716,8 @@ def format_monthly_report_table(station: str, year: int, month: int, station_row
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"{table}"
         f"📈 *Summary*\n"
-        f"• DO       :    {total_diesel:>8,.2f}L     | {diesel_pct:>5.1f}%\n"
-        f"• EA92   :    {total_regular:>8,.2f}L    | {regular_pct:>5.1f}%\n"
-        f"• EA95   :    {total_super:>8,.2f}L    | {super_pct:>5.1f}%\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"• Total       :     {total_volume:,.2f} L\n"
-        f"• Avg/Day :     {avg_daily:,.2f} L"
+        f"{summary_table}"
     )
     
     return msg
